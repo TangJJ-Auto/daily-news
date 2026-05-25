@@ -1,0 +1,25 @@
+name: Daily Tech Briefing
+
+on:
+  schedule:
+    - cron: "30 0 * * *"   # UTC 0:30 = CST 8:30
+  workflow_dispatch:        # 允许手动触发测试
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run briefing
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: python news_briefing.py
