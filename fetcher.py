@@ -114,11 +114,39 @@ def fetch_weekly_if_new():
 
 # ─── 每日来源 ───────────────────────────────────
 
+def _fetch_webpage(url, extra_headers=None):
+    """抓取可能返回非 JSON 的网页，返回文本"""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    hdrs = dict(HEADERS)
+    if extra_headers:
+        hdrs.update(extra_headers)
+    for attempt in range(MAX_RETRIES):
+        try:
+            req = Request(url, headers=hdrs)
+            with urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read().decode("utf-8")
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY)
+            else:
+                print(f"  [fetch] {url[:80]}... 失败: {e}")
+                return None
+
+
 def fetch_weibo_hot():
-    """微博热搜"""
+    """微博热搜 — 需要模拟浏览器"""
+    # 先尝试移动端 API，更容易通过
     data = _fetch("https://weibo.com/ajax/side/hotSearch")
     if not data:
-        return []
+        # 备用：使用 weibo.cn 移动版
+        html = _fetch_webpage("https://weibo.cn/pub/topmny", {
+            "Referer": "https://weibo.cn/",
+            "Accept": "text/html,application/xhtml+xml",
+        })
+        return _parse_weibo_html(html) if html else []
+
     results = []
     for item in data.get("data", {}).get("realtime", [])[:15]:
         word = item.get("word", "") or item.get("note", "")
@@ -129,6 +157,17 @@ def fetch_weibo_hot():
                 "source": "微博热搜",
             })
     return results
+
+
+def _parse_weibo_html(html):
+    """解析 weibo.cn 的 HTML 热搜"""
+    results = []
+    for m in re.finditer(r'<a href="([^"]+)".*?>([^<]{2,60})</a>', html):
+        title = m.group(2).strip()
+        url = m.group(1)
+        if title and len(title) >= 4:
+            results.append({"title": title, "url": url, "source": "微博热搜"})
+    return results[:15]
 
 
 def fetch_hackernews():
@@ -149,13 +188,38 @@ def fetch_hackernews():
 
 
 def fetch_baidu_hot():
-    """百度热搜"""
-    data = _fetch("https://top.baidu.com/board?tab=realtime")
-    if not data:
+    """百度热搜 — 尝试多种方式"""
+    # 方式 1: JSONP 接口
+    text = _fetch_webpage(
+        "https://top.baidu.com/board?tab=realtime",
+        {"Referer": "https://top.baidu.com/", "Accept": "application/json, text/plain, */*"}
+    )
+    if not text:
         return []
+
+    # 从 HTML 中提取 JSON 数据
+    m = re.search(r'<!--s-data:(.*?)-->', text, re.DOTALL)
+    if m:
+        try:
+            data = json.loads(m.group(1))
+            cards = (data.get("data") or {}).get("cards") or data.get("cards", [])
+            return _extract_baidu_cards(cards)
+        except json.JSONDecodeError:
+            pass
+
+    # 方式 2: 尝试直接解析
+    try:
+        data = json.loads(text)
+        cards = (data.get("data") or {}).get("cards") or data.get("cards", [])
+        return _extract_baidu_cards(cards)
+    except (json.JSONDecodeError, AttributeError):
+        pass
+
+    return []
+
+
+def _extract_baidu_cards(cards):
     results = []
-    # 百度热榜返回 HTML，从 JSON 数据中提取
-    cards = data.get("data", {}).get("cards", [])
     for card in cards:
         for content in card.get("content", [])[:15]:
             word = content.get("word", "") or content.get("query", "")
@@ -172,18 +236,16 @@ def fetch_baidu_hot():
 def _fetch_daily_all():
     """拉取所有每日来源"""
     all_items = []
-    fetchers = [
-        ("weibo", fetch_weibo_hot),
-        ("baidu", fetch_baidu_hot),
-        ("hn", fetch_hackernews),
-    ]
-    for name, fn in fetchers:
+    fetchers = [fetch_weibo_hot, fetch_baidu_hot, fetch_hackernews]
+    for fn in fetchers:
         try:
             items = fn()
-            print(f"  [{name}] {len(items)} 条")
+            label = fn.__name__.replace("fetch_", "").replace("_hot", "")
+            print(f"  [{label}] {len(items)} 条")
             all_items.extend(items)
         except Exception as e:
-            print(f"  [{name}] 失败: {e}")
+            label = fn.__name__.replace("fetch_", "").replace("_hot", "")
+            print(f"  [{label}] 失败: {e}")
     return deduplicate(all_items)
 
 
