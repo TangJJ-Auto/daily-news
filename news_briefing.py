@@ -1,4 +1,5 @@
 """每日科技速递 — 主入口"""
+import os
 import sys
 from datetime import datetime
 from fetcher import fetch_all_news
@@ -31,6 +32,10 @@ def main():
     ok, detail = push(title, summary_text)
     if ok:
         print(f"[DONE] 请求受理: {detail}")
+        # 写入日期标记，配合 GitHub Actions cache 防止同一天重复发送
+        os.makedirs(".sent-date", exist_ok=True)
+        with open(".sent-date/date.txt", "w") as f:
+            f.write(today)
     else:
         print(f"[FAIL] 推送失败: {detail}")
         print(summary_text[:500])

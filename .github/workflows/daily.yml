@@ -2,8 +2,8 @@ name: Daily Tech Briefing
 
 on:
   schedule:
-    - cron: "30 0 * * *"   # UTC 0:30 = CST 8:30
-  workflow_dispatch:        # 允许手动触发测试
+    - cron: "7 * * * *"     # 每小时第7分钟触发，避免整点拥堵
+  workflow_dispatch:
 
 jobs:
   briefing:
@@ -18,7 +18,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore sent date cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .sent-date
+          key: briefing-sent-${{ github.run_date }}
+
       - name: Run briefing
+        if: steps.cache.outputs.cache-hit != 'true'
         env:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
