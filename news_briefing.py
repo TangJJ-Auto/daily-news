@@ -28,12 +28,12 @@ def main():
     # 3. 推送微信
     print("[3/3] 推送到微信...")
     title = f"科技速递 · {today}"
-    success = push(title, summary_text)
-    if success:
-        print("[DONE] 推送成功!")
+    ok, detail = push(title, summary_text)
+    if ok:
+        print(f"[DONE] 请求受理: {detail}")
     else:
-        print("[FAIL] 推送失败，内容如下:\n")
-        print(summary_text)
+        print(f"[FAIL] 推送失败: {detail}")
+        print(summary_text[:500])
         sys.exit(1)
 
 
